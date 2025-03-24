@@ -40,11 +40,11 @@ KAHOOT_URL = "https://kahoot.it/?pin=" + GAME_PIN
 NUM_ITER = 10  # Number of bots is two times the number of iterations because they join in pairs
 
 # Increase this value (seconds) if the script is going too fast due to performance or network overhead.
-pyautogui.PAUSE = 0.2  # Generally, 0.1 to 0.3 works
+pyautogui.PAUSE = 0.25  # Generally, 0.1 to 0.3 works
 
 
 def generate_nickname():
-    response = requests.get("https://api.jerrydev.net/generators/human_name")
+    response = requests.get("https://api.jerryxf.net/generators/human_name")
     response_json = response.json()
 
     name = response_json["data"]
