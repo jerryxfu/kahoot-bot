@@ -8,7 +8,7 @@ from playwright.async_api import async_playwright
 from cc import cc
 
 # Configuration
-GAME_PIN = "2082289"  # Replace with game pin
+GAME_PIN = "1868976"  # Replace with game pin
 HEADLESS = True  # Set to True to run without visible browser windows
 BROWSER_TYPE = "chromium"  # Options: "chromium", "firefox", "webkit"
 KAHOOT_URL = f"https://kahoot.it/?pin={GAME_PIN}"
@@ -119,27 +119,34 @@ async def auto_random_answer(bot_session):
     page = bot_session["page"]
     bot_id = bot_session["id"]
 
-    import random
-
     try:
         while True:
             # Wait for answer buttons to appear
             answer_buttons = page.locator('[data-functional-selector^="answer-"]')
 
-            # Check if any answer buttons are visible
-            if await answer_buttons.count() > 0:
-                # Get number of available answers
+            # Get number of available answers
+            num_answers = await answer_buttons.count()
+
+            # Check if any answer buttons are visible and valid
+            if num_answers > 0:
+                # Wait a moment for buttons to be fully interactive
+                await page.wait_for_timeout(100)
+
+                # Re-check count to ensure stability
                 num_answers = await answer_buttons.count()
-                random_index = random.randint(0, num_answers - 1)
+                if num_answers > 0:
+                    random_index = random.randint(0, num_answers - 1)
+                    await answer_question(bot_session, random_index)
 
-                await answer_question(bot_session, random_index)
-
-                # Wait a bit before checking for next question
-                await page.wait_for_timeout(2000)
+                    # Wait a bit before checking for next question
+                    await page.wait_for_timeout(2000)
             else:
                 # No questions yet, wait a bit
                 await page.wait_for_timeout(500)
 
+    except asyncio.CancelledError:
+        # Task was cancelled, exit gracefully
+        pass
     except Exception as e:
         print(cc("RED", f"[Bot {bot_id}] Auto-answer stopped: {e}"))
 
