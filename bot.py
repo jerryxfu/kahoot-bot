@@ -1,12 +1,16 @@
 import asyncio
+import sys
+
 import requests
 from playwright.async_api import async_playwright
+
 from cc import cc
 
 # Configuration
 GAME_PIN = "5721072"  # Replace with game pin
-NUM_BOTS = 4  # Number of bots to spawn
+NUM_BOTS = 8  # Number of bots to spawn
 HEADLESS = False  # Set to True to run without visible browser windows
+BROWSER_TYPE = "chromium"  # Options: "chromium", "firefox", "webkit"
 KAHOOT_URL = f"https://kahoot.it/?pin={GAME_PIN}"
 
 
@@ -53,8 +57,7 @@ async def join_kahoot(context_id: int, browser, game_pin: str):
         await nickname_input.wait_for(state="visible", timeout=20000)
         await nickname_input.fill(nickname)
 
-        # Small delay to ensure input is registered
-        await page.wait_for_timeout(300)
+        # await page.wait_for_timeout(50)
 
         # Click the join button
         print(cc("GREEN", f"[Bot {context_id}] Joining game..."))
@@ -142,18 +145,34 @@ async def auto_random_answer(bot_session):
 
 
 async def main():
+    # Check for command-line arguments for browser type
+    browser_type = BROWSER_TYPE
+    if len(sys.argv) > 1:
+        arg = sys.argv[1].lower()
+        if arg in ["chromium", "firefox", "webkit"]:
+            browser_type = arg
+
     print(cc("CYAN", "=" * 50))
     print(cc("CYAN", "       Kahoot Bot - Playwright Edition"))
     print(cc("CYAN", "=" * 50))
     print(cc("GRAY", f"Game PIN: {GAME_PIN}"))
     print(cc("GRAY", f"Number of bots: {NUM_BOTS}"))
+    print(cc("GRAY", f"Browser: {browser_type.upper()}"))
     print(cc("GRAY", f"Headless mode: {HEADLESS}"))
     print(cc("CYAN", "=" * 50))
 
     async with async_playwright() as p:
-        # Launch a single browser instance
-        print(cc("GREEN", "Launching browser..."))
-        browser = await p.chromium.launch(headless=HEADLESS)
+        # Select browser based on configuration
+        if browser_type.lower() == "firefox":
+            browser_launcher = p.firefox
+        elif browser_type.lower() == "webkit":
+            browser_launcher = p.webkit
+        else:
+            browser_launcher = p.chromium
+
+        # Launch browser instance
+        print(cc("GREEN", f"Launching {browser_type} browser..."))
+        browser = await browser_launcher.launch(headless=HEADLESS)
 
         # Spawn all bots concurrently
         print(cc("GREEN", f"Spawning {NUM_BOTS} bots..."))
@@ -178,6 +197,7 @@ async def main():
         print(cc("GRAY", "  2 - Click top-right (Blue/Diamond)"))
         print(cc("GRAY", "  3 - Click bottom-left (Yellow/Circle)"))
         print(cc("GRAY", "  4 - Click bottom-right (Green/Square)"))
+        print(cc("GRAY", "  r - Send random answer to all bots"))
         print(cc("GRAY", "  a - Enable auto-random answers"))
         print(cc("GRAY", "  q - Quit and close all bots"))
         print(cc("CYAN", "=" * 50))
@@ -196,6 +216,11 @@ async def main():
                 if user_input == "q":
                     print(cc("RED", "Quitting..."))
                     break
+                elif user_input == "r":
+                    import random
+                    random_answer = random.randint(0, 3)
+                    print(cc("GREEN", f"Sending random answer {random_answer} to all bots..."))
+                    await answer_all_bots(active_bots, random_answer)
                 elif user_input == "a":
                     if not auto_mode:
                         print(cc("GREEN", "Enabling auto-random answers for all bots..."))
@@ -208,7 +233,7 @@ async def main():
                     print(cc("GREEN", f"Sending answer {answer_index} to all bots..."))
                     await answer_all_bots(active_bots, answer_index)
                 else:
-                    print(cc("RED", "Invalid command. Use 1-4, a, or q."))
+                    print(cc("RED", "Invalid command. Use 1-4, r, a, or q."))
 
             except (EOFError, KeyboardInterrupt):
                 break

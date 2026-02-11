@@ -2,11 +2,6 @@
 
 A Kahoot bot that can join games and answer questions automatically.
 
-## 🚀 Playwright Version (Recommended)
-
-The new `bot.py` uses Playwright to directly control browser instances. This is much more reliable than keyboard simulation and handles Kahoot's tab detection
-by using isolated browser contexts.
-
 ### Installation
 
 ```bash
@@ -36,10 +31,3 @@ python bot.py
     - `3` - Bottom-left (Yellow/Circle)
     - `4` - Bottom-right (Green/Square)
     - `q` - Quit and close all bots
-
-### How it works
-
-- Uses isolated browser contexts (like separate incognito windows) for each bot
-- Each context has its own cookies/storage, bypassing Kahoot's "same tab" detection
-- All bots run in a single browser process for efficiency
-- Bots join concurrently for faster setup
