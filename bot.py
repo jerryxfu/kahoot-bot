@@ -1,31 +1,31 @@
 import asyncio
+import random
 import sys
 
-import requests
+import aiohttp
 from playwright.async_api import async_playwright
 
 from cc import cc
 
 # Configuration
-GAME_PIN = "5721072"  # Replace with game pin
-NUM_BOTS = 8  # Number of bots to spawn
-HEADLESS = False  # Set to True to run without visible browser windows
+GAME_PIN = "2082289"  # Replace with game pin
+HEADLESS = True  # Set to True to run without visible browser windows
 BROWSER_TYPE = "chromium"  # Options: "chromium", "firefox", "webkit"
 KAHOOT_URL = f"https://kahoot.it/?pin={GAME_PIN}"
 
 
-def generate_nickname():
+async def generate_nickname():
     """Generate a random human name for the bot nickname."""
     try:
-        response = requests.get("https://api.jerryxf.net/generators/human_name", timeout=5)
-        response_json = response.json()
-        name = response_json["data"]
-        truncated_name = name[:14]  # Truncate if exceeds 14 characters
-        return truncated_name
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://api.jerryxf.net/generators/human_name", timeout=aiohttp.ClientTimeout(total=5)) as response:
+                response_json = await response.json()
+                name = response_json["data"]
+                truncated_name = name[:14]  # Truncate if exceeds 14 characters
+                return truncated_name
     except Exception as e:
         print(cc("RED", f"Error generating nickname: {e}"))
         # Fallback to a simple generated name
-        import random
         return f"Bot{random.randint(1000, 9999)}"
 
 
@@ -38,7 +38,7 @@ async def join_kahoot(context_id: int, browser, game_pin: str):
     context = await browser.new_context()
     page = await context.new_page()
 
-    nickname = generate_nickname()
+    nickname = await generate_nickname()
     print(cc("CYAN", f"[Bot {context_id}] Starting with nickname: {nickname}"))
 
     try:
@@ -69,8 +69,7 @@ async def join_kahoot(context_id: int, browser, game_pin: str):
         ).first
         await join_button.click()
 
-        # Wait for successful join confirmation
-        await page.wait_for_timeout(1000)
+        # await page.wait_for_timeout(1000)
         print(cc("BLUE", f"[Bot {context_id}] ✓ Joined as '{nickname}'"))
 
         # Keep the context alive - return it so we can manage it later
@@ -85,8 +84,9 @@ async def join_kahoot(context_id: int, browser, game_pin: str):
 async def answer_question(bot_session, answer_index: int):
     """
     Click an answer button for a bot.
-    answer_index: 0=top-left, 1=top-right, 2=bottom-left, 3=bottom-right
-    For true/false: 0=left(true), 1=right(false)
+    answer_index: 0-5 for answers 1-6
+    For true/false: 0=left, 1=right
+    For multiple choice: 0-5 depending on number of options available
     """
     page = bot_session["page"]
     bot_id = bot_session["id"]
@@ -153,10 +153,23 @@ async def main():
             browser_type = arg
 
     print(cc("CYAN", "=" * 50))
-    print(cc("CYAN", "       Kahoot Bot - Playwright Edition"))
+    print(cc("CYAN", "       Kahoot Bot"))
     print(cc("CYAN", "=" * 50))
+
+    # Ask for number of bots
+    while True:
+        try:
+            num_bots_input = input(cc("YELLOW", "Enter number of bots to spawn: "))
+            num_bots = int(num_bots_input.strip())
+            if num_bots > 0:
+                break
+            else:
+                print(cc("RED", "Please enter a positive number."))
+        except ValueError:
+            print(cc("RED", "Invalid input. Please enter a number."))
+
     print(cc("GRAY", f"Game PIN: {GAME_PIN}"))
-    print(cc("GRAY", f"Number of bots: {NUM_BOTS}"))
+    print(cc("GRAY", f"Number of bots: {num_bots}"))
     print(cc("GRAY", f"Browser: {browser_type.upper()}"))
     print(cc("GRAY", f"Headless mode: {HEADLESS}"))
     print(cc("CYAN", "=" * 50))
@@ -175,13 +188,13 @@ async def main():
         browser = await browser_launcher.launch(headless=HEADLESS)
 
         # Spawn all bots concurrently
-        print(cc("GREEN", f"Spawning {NUM_BOTS} bots..."))
-        tasks = [join_kahoot(i + 1, browser, GAME_PIN) for i in range(NUM_BOTS)]
+        print(cc("GREEN", f"Spawning {num_bots} bots..."))
+        tasks = [join_kahoot(i + 1, browser, GAME_PIN) for i in range(num_bots)]
         bot_sessions = await asyncio.gather(*tasks)
 
         # Filter out failed sessions
         active_bots = [bot for bot in bot_sessions if bot is not None]
-        print(cc("CYAN", f"\n✓ {len(active_bots)}/{NUM_BOTS} bots joined successfully!"))
+        print(cc("CYAN", f"\n✓ {len(active_bots)}/{num_bots} bots joined successfully!"))
 
         if not active_bots:
             print(cc("RED", "No bots were able to join. Exiting..."))
@@ -193,12 +206,14 @@ async def main():
         print(cc("CYAN", "       Answer Control"))
         print(cc("CYAN", "=" * 50))
         print(cc("GRAY", "Commands:"))
-        print(cc("GRAY", "  1 - Click top-left (Red/Triangle)"))
-        print(cc("GRAY", "  2 - Click top-right (Blue/Diamond)"))
-        print(cc("GRAY", "  3 - Click bottom-left (Yellow/Circle)"))
-        print(cc("GRAY", "  4 - Click bottom-right (Green/Square)"))
+        print(cc("GRAY", "  1 - Click answer 1 (Red/Triangle)"))
+        print(cc("GRAY", "  2 - Click answer 2 (Blue/Diamond)"))
+        print(cc("GRAY", "  3 - Click answer 3 (Yellow/Circle)"))
+        print(cc("GRAY", "  4 - Click answer 4 (Green/Square)"))
+        print(cc("GRAY", "  5 - Click answer 5 (if available)"))
+        print(cc("GRAY", "  6 - Click answer 6 (if available)"))
         print(cc("GRAY", "  r - Send random answer to all bots"))
-        print(cc("GRAY", "  a - Enable auto-random answers"))
+        print(cc("GRAY", "  a - Toggle auto-random answers"))
         print(cc("GRAY", "  q - Quit and close all bots"))
         print(cc("CYAN", "=" * 50))
 
@@ -218,22 +233,26 @@ async def main():
                     break
                 elif user_input == "r":
                     import random
-                    random_answer = random.randint(0, 3)
-                    print(cc("GREEN", f"Sending random answer {random_answer} to all bots..."))
-                    await answer_all_bots(active_bots, random_answer)
+                    print(cc("GREEN", f"Sending random answers to all bots..."))
+                    tasks = [answer_question(bot, random.randint(0, 5)) for bot in active_bots if bot is not None]
+                    await asyncio.gather(*tasks)
                 elif user_input == "a":
                     if not auto_mode:
                         print(cc("GREEN", "Enabling auto-random answers for all bots..."))
                         auto_tasks = [asyncio.create_task(auto_random_answer(bot)) for bot in active_bots]
                         auto_mode = True
                     else:
-                        print(cc("YELLOW", "Auto mode already enabled"))
-                elif user_input in ["1", "2", "3", "4"]:
+                        print(cc("YELLOW", "Disabling auto-random answers..."))
+                        for task in auto_tasks:
+                            task.cancel()
+                        auto_tasks = []
+                        auto_mode = False
+                elif user_input in ["1", "2", "3", "4", "5", "6"]:
                     answer_index = int(user_input) - 1
                     print(cc("GREEN", f"Sending answer {answer_index} to all bots..."))
                     await answer_all_bots(active_bots, answer_index)
                 else:
-                    print(cc("RED", "Invalid command. Use 1-4, r, a, or q."))
+                    print(cc("RED", "Invalid command. Use 1-6, r, a, or q."))
 
             except (EOFError, KeyboardInterrupt):
                 break
