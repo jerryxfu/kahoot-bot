@@ -8,9 +8,10 @@ from playwright.async_api import async_playwright
 from cc import cc
 
 # Configuration
-GAME_PIN = "1868976"  # Replace with game pin
-HEADLESS = True  # Set to True to run without visible browser windows
-BROWSER_TYPE = "chromium"  # Options: "chromium", "firefox", "webkit"
+GAME_PIN = "820609"  # <<< Replace with game pin
+
+HEADLESS = True  # set false to see browser tabs (mostly for debugging)
+BROWSER_TYPE = "chromium"  # "chromium" (recommended), "firefox", "webkit"
 KAHOOT_URL = f"https://kahoot.it/?pin={GAME_PIN}"
 
 
@@ -44,7 +45,7 @@ async def join_kahoot(context_id: int, browser, game_pin: str):
     try:
         # Navigate to Kahoot with the game pin
         print(cc("GREEN", f"[Bot {context_id}] Navigating to Kahoot..."))
-        await page.goto(KAHOOT_URL, timeout=30000)
+        await page.goto(KAHOOT_URL, timeout=15000)
 
         # Wait for the nickname input to appear and fill it
         print(cc("YELLOW", f"[Bot {context_id}] Waiting for nickname input..."))
@@ -54,10 +55,10 @@ async def join_kahoot(context_id: int, browser, game_pin: str):
             'input[name="nickname"], '
             'input[placeholder*="nickname" i]'
         ).first
-        await nickname_input.wait_for(state="visible", timeout=20000)
+        await nickname_input.wait_for(state="visible", timeout=15000)
         await nickname_input.fill(nickname)
 
-        # await page.wait_for_timeout(50)
+        await page.wait_for_timeout(50)
 
         # Click the join button
         print(cc("GREEN", f"[Bot {context_id}] Joining game..."))
@@ -69,7 +70,7 @@ async def join_kahoot(context_id: int, browser, game_pin: str):
         ).first
         await join_button.click()
 
-        # await page.wait_for_timeout(1000)
+        await page.wait_for_timeout(50)
         print(cc("BLUE", f"[Bot {context_id}] ✓ Joined as '{nickname}'"))
 
         # Keep the context alive - return it so we can manage it later
@@ -85,16 +86,12 @@ async def answer_question(bot_session, answer_index: int):
     """
     Click an answer button for a bot.
     answer_index: 0-5 for answers 1-6
-    For true/false: 0=left, 1=right
-    For multiple choice: 0-5 depending on number of options available
     """
     page = bot_session["page"]
     bot_id = bot_session["id"]
 
     try:
-        # Kahoot answer buttons have data-functional-selector attributes
-        # For 4-answer questions: answer-0, answer-1, answer-2, answer-3
-        # For 2-answer questions (true/false): answer-0, answer-1
+        # Kahoot answer buttons have data-functional-selector attributes in the format "answer-0", "answer-1", etc.
         answer_button = page.locator(f'[data-functional-selector="answer-{answer_index}"]')
 
         # Check if button exists and is visible
@@ -213,15 +210,10 @@ async def main():
         print(cc("CYAN", "       Answer Control"))
         print(cc("CYAN", "=" * 50))
         print(cc("GRAY", "Commands:"))
-        print(cc("GRAY", "  1 - Click answer 1 (Red/Triangle)"))
-        print(cc("GRAY", "  2 - Click answer 2 (Blue/Diamond)"))
-        print(cc("GRAY", "  3 - Click answer 3 (Yellow/Circle)"))
-        print(cc("GRAY", "  4 - Click answer 4 (Green/Square)"))
-        print(cc("GRAY", "  5 - Click answer 5 (if available)"))
-        print(cc("GRAY", "  6 - Click answer 6 (if available)"))
-        print(cc("GRAY", "  r - Send random answer to all bots"))
-        print(cc("GRAY", "  a - Toggle auto-random answers"))
-        print(cc("GRAY", "  q - Quit and close all bots"))
+        print(cc("BLUE", "  1-6") + cc("GRAY", f" > Select answer, left-right top-bottom order"))
+        print(cc("BLUE", "  r") + cc("GRAY", f" > Send random answer to all bots"))
+        print(cc("BLUE", "  a") + cc("GRAY", f" > Toggle auto-random answers"))
+        print(cc("BLUE", "  q") + cc("GRAY", f" > Quit and close all bots"))
         print(cc("CYAN", "=" * 50))
 
         auto_mode = False
@@ -256,7 +248,7 @@ async def main():
                         auto_mode = False
                 elif user_input in ["1", "2", "3", "4", "5", "6"]:
                     answer_index = int(user_input) - 1
-                    print(cc("GREEN", f"Sending answer {answer_index} to all bots..."))
+                    print(cc("GREEN", f"Sending answer #{answer_index + 1} to all bots..."))
                     await answer_all_bots(active_bots, answer_index)
                 else:
                     print(cc("RED", "Invalid command. Use 1-6, r, a, or q."))
