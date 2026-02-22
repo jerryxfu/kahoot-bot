@@ -8,7 +8,7 @@ from playwright.async_api import async_playwright
 from cc import cc
 
 # Configuration
-GAME_PIN = "820609"  # <<< Replace with game pin
+GAME_PIN = "3232713"  # <<< Replace with game pin
 
 HEADLESS = True  # set false to see browser tabs (mostly for debugging)
 BROWSER_TYPE = "chromium"  # "chromium" (recommended), "firefox", "webkit"
@@ -136,10 +136,10 @@ async def auto_random_answer(bot_session):
                     await answer_question(bot_session, random_index)
 
                     # Wait a bit before checking for next question
-                    await page.wait_for_timeout(2000)
+                    await page.wait_for_timeout(2500)
             else:
                 # No questions yet, wait a bit
-                await page.wait_for_timeout(500)
+                await page.wait_for_timeout(100)
 
     except asyncio.CancelledError:
         # Task was cancelled, exit gracefully
