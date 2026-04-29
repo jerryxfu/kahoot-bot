@@ -2,6 +2,12 @@ import json
 
 from cc import cc
 
+# Shared state: network module stores game data that bot.py can read
+game_data = {
+    "game_api_id": None,
+    "q1_answers": None,  # list of {answer, correct} from firstGameBlockData
+}
+
 
 def attach_network_debugging(page, bot_id: int, verbose=False):
     """Only attach to bot 1 to avoid duplicate output."""
@@ -64,36 +70,56 @@ def handle_game_message(data: dict, bot_id: int):
 
     msg_id = inner.get("id")
 
+    # Extract gameApiId from lobby message (id=17)
+    if "gameApiId" in content:
+        game_data["game_api_id"] = content["gameApiId"]
+
     # Q1 preview (id=9): full question + answers + correct flags
     if "firstGameBlockData" in content:
         block = content["firstGameBlockData"]
         q = block.get("question", "")
+        choices = block.get("choices", [])
+
+        game_data["q1_answers"] = choices
+
         print(cc("CYAN", f"\n{'=' * 50}"))
         print(cc("CYAN", f"  Q1: {q}"))
         print(cc("CYAN", f"{'=' * 50}"))
-
-        for i, c in enumerate(block.get("choices", [])):
+        for i, c in enumerate(choices):
             marker = "✓" if c.get("correct") else " "
             print(cc("GREEN" if c.get("correct") else "GRAY",
                      f"  [{marker}] {i + 1}: {c.get('answer', '?')}"))
         print()
 
-    # Get-ready (id=1): question metadata only, no answers
+    # Get-ready (id=1): question metadata
     if "gameBlockIndex" in content and msg_id == 1:
         idx = content["gameBlockIndex"]
         total = content["totalGameBlockCount"]
         qtype = content.get("type", "?")
-        choices = content.get("numberOfChoices", "?")
-        print(cc("YELLOW", f"⏳ Question {idx + 1}/{total} ({qtype}, {choices} choices)"))
+        num_choices = content.get("numberOfChoices", "?")
+        print(cc("YELLOW", f"⏳ Question {idx + 1}/{total} ({qtype}, {num_choices} choices)"))
 
     # Answer result (id=8)
-    # if "correctChoices" in content:
-    #     correct = content["correctChoices"]
-    #     chose = content.get("choice")
-    #     points = content.get("points", 0)
-    #     total = content.get("totalScore", content.get("pointsData", {}).get("totalPointsWithBonuses", "?"))
-    #     is_correct = content.get("isCorrect", False)
-    #     icon = "✅" if is_correct else "❌"
-    #     print(cc("GREEN" if is_correct else "RED",
-    #              f"{icon} Correct: {correct}, Chose: {chose}, "
-    #              f"+{points}pts (total: {total})"))
+    if "correctChoices" in content:
+        correct = content["correctChoices"]
+        chose = content.get("choice")
+        points = content.get("points", 0)
+        total = content.get("totalScore", "?")
+        is_correct = content.get("isCorrect", False)
+        icon = "✅" if is_correct else "❌"
+        print(cc("GREEN" if is_correct else "RED",
+                 f"  {icon} Correct: {correct}, Chose: {chose}, "
+                 f"+{points}pts (total: {total})"))
+
+    # Game over (id=13)
+    if msg_id == 13 and "quizTitle" in content:
+        rank = content.get("rank", "?")
+        total = content.get("totalScore", "?")
+        title = content.get("quizTitle", "?")
+        correct_count = content.get("correctCount", "?")
+        incorrect_count = content.get("incorrectCount", "?")
+        print(cc("CYAN", f"\n{'=' * 50}"))
+        print(cc("CYAN", f"  [Bot {bot_id}] Game Over: {title}"))
+        print(cc("CYAN", f"  Rank: {rank} | Score: {total} | "
+                         f"Correct: {correct_count} | Wrong: {incorrect_count}"))
+        print(cc("CYAN", f"{'=' * 50}\n"))

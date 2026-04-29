@@ -6,14 +6,18 @@ import aiohttp
 from playwright.async_api import async_playwright
 
 from cc import cc
-from network import attach_network_debugging
+from network import attach_network_debugging, game_data
 
 # Configuration
-GAME_PIN = "4182863"
+GAME_PIN = "4112292"
 
 HEADLESS = True  # set false to see browser tabs (mostly for debugging)
 BROWSER_TYPE = "webkit"  # "chromium" (recommended), "firefox", "webkit"
 KAHOOT_URL = f"https://kahoot.it/?pin={GAME_PIN}"
+
+# Reaction keys: z x c v b n mapped to the 6 reaction types
+REACTION_KEYS = {"z": 0, "x": 1, "c": 2, "v": 3, "b": 4, "n": 5}
+REACTION_NAMES = ["👍 ThumbsUp", "👏 Clap", "❤️ Heart", "😂 Haha", "🤔 Thinking", "😮 Wow"]
 
 
 async def generate_nickname():
@@ -29,6 +33,44 @@ async def generate_nickname():
         print(cc("RED", f"Error generating nickname: {e}"))
         # Fallback to a simple generated name
         return f"Bot{random.randint(1000, 9999)}"
+
+
+async def try_fetch_quiz(game_api_id: str):
+    """Attempt to fetch quiz content using the gameApiId."""
+    urls = [
+        f"https://kahoot.it/rest/kahoots/{game_api_id}",
+        f"https://apis.kahoot.it/kahoots/{game_api_id}",
+        f"https://create.kahoot.it/rest/kahoots/{game_api_id}",
+    ]
+
+    async with aiohttp.ClientSession() as session:
+        for url in urls:
+            try:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        questions = data.get("questions", [])
+                        if questions:
+                            print(cc("GREEN", f"\n🎯 Fetched quiz: {data.get('title', '?')} ({len(questions)} questions)"))
+                            print(cc("CYAN", "=" * 50))
+                            for qi, q in enumerate(questions):
+                                qtext = q.get("question", "?")
+                                print(cc("CYAN", f"  Q{qi + 1}: {qtext}"))
+                                for ci, c in enumerate(q.get("choices", [])):
+                                    marker = "✓" if c.get("correct") else " "
+                                    print(cc("GREEN" if c.get("correct") else "GRAY",
+                                             f"    [{marker}] {ci + 1}: {c.get('answer', '?')}"))
+                            print(cc("CYAN", "=" * 50))
+                            return questions
+                        else:
+                            print(cc("YELLOW", f"Quiz fetched from {url} but no questions found"))
+                    else:
+                        print(cc("GRAY", f"  {url} → {response.status}"))
+            except Exception as e:
+                print(cc("GRAY", f"  {url} → {e}"))
+
+    print(cc("YELLOW", "Could not pre-fetch quiz (likely private)"))
+    return None
 
 
 async def join_kahoot(context_id: int, browser, game_pin: str):
@@ -130,6 +172,41 @@ async def answer_all_bots(bot_sessions, answer_index: int):
     await asyncio.gather(*tasks)
 
 
+async def send_reaction(bot_session, reaction_index: int):
+    """Send a reaction by opening the reaction menu then clicking the nth reaction."""
+    page = bot_session["page"]
+    bot_id = bot_session["id"]
+
+    try:
+        # Step 1: Open the reaction menu
+        prompt_button = page.locator('[data-functional-selector="reaction-prompt-button"]')
+        if await prompt_button.count() == 0:
+            print(cc("YELLOW", f"[Bot {bot_id}] Reaction button not available"))
+            return
+
+        await prompt_button.click()
+        await page.wait_for_timeout(200)
+
+        # Step 2: Click the nth reaction item
+        reaction_items = page.locator('[data-functional-selector="slide-reactions-item"]')
+        count = await reaction_items.count()
+
+        if reaction_index < count:
+            await reaction_items.nth(reaction_index).click()
+            name = REACTION_NAMES[reaction_index] if reaction_index < len(REACTION_NAMES) else str(reaction_index)
+            print(cc("BLUE", f"[Bot {bot_id}] Reacted {name}"))
+        else:
+            print(cc("YELLOW", f"[Bot {bot_id}] Reaction {reaction_index} not found ({count} available)"))
+    except Exception as e:
+        print(cc("RED", f"[Bot {bot_id}] Error sending reaction: {e}"))
+
+
+async def react_all_bots(bot_sessions, reaction_index: int):
+    """Send the same reaction from all bots simultaneously."""
+    tasks = [send_reaction(bot, reaction_index) for bot in bot_sessions if bot is not None]
+    await asyncio.gather(*tasks)
+
+
 async def send_random_answer(bot_session):
     """Send a random answer by first checking available answer buttons."""
     page = bot_session["page"]
@@ -150,7 +227,7 @@ async def send_random_answer(bot_session):
 
 
 async def auto_random_answer(bot_session):
-    """Continuously monitor for questions and answer randomly (optional feature)."""
+    """Continuously monitor for questions and answer randomly."""
     page = bot_session["page"]
     bot_id = bot_session["id"]
     last_question_answered = False
@@ -251,15 +328,26 @@ async def main():
             await browser.close()
             return
 
+        # Wait a moment for WebSocket messages to arrive with gameApiId
+        await asyncio.sleep(2)
+
+        # Attempt to pre-fetch quiz
+        if game_data["game_api_id"]:
+            print(cc("YELLOW", f"\nAttempting to fetch quiz ({game_data['game_api_id']})..."))
+            await try_fetch_quiz(game_data["game_api_id"])
+        else:
+            print(cc("GRAY", "No gameApiId received yet"))
+
         # Interactive answer control
         print(cc("CYAN", "\n" + "=" * 50))
         print(cc("CYAN", "       Answer Control"))
         print(cc("CYAN", "=" * 50))
         print(cc("GRAY", "Commands:"))
-        print(cc("BLUE", "  1-6") + cc("GRAY", f" > Select answer, left-right top-bottom order"))
-        print(cc("BLUE", "  r") + cc("GRAY", f" > Send random answer to all bots"))
-        print(cc("BLUE", "  a") + cc("GRAY", f" > Toggle auto-random answers"))
-        print(cc("BLUE", "  q") + cc("GRAY", f" > Quit and close all bots"))
+        print(cc("BLUE", "  1-6") + cc("GRAY", " > Select answer"))
+        print(cc("BLUE", "  r") + cc("GRAY", " > Send random answer to all bots"))
+        print(cc("BLUE", "  a") + cc("GRAY", " > Toggle auto-random answers"))
+        print(cc("BLUE", "  z x c v b n") + cc("GRAY", " > React: 👍 👏 ❤️ 😂 🤔 😮"))
+        print(cc("BLUE", "  q") + cc("GRAY", " > Quit and close all bots"))
         print(cc("CYAN", "=" * 50))
 
         auto_mode = False
@@ -277,7 +365,7 @@ async def main():
                     print(cc("RED", "Quitting..."))
                     break
                 elif user_input == "r":
-                    print(cc("GREEN", f"Sending random answers to all bots..."))
+                    print(cc("GREEN", "Sending random answers to all bots..."))
                     tasks = [send_random_answer(bot) for bot in active_bots if bot is not None]
                     await asyncio.gather(*tasks)
                 elif user_input == "a":
@@ -295,8 +383,12 @@ async def main():
                     answer_index = int(user_input) - 1
                     print(cc("GREEN", f"Sending answer #{answer_index + 1} to all bots..."))
                     await answer_all_bots(active_bots, answer_index)
+                elif user_input in REACTION_KEYS:
+                    reaction_index = REACTION_KEYS[user_input]
+                    print(cc("BLUE", f"Sending reaction {reaction_index} to all bots..."))
+                    await react_all_bots(active_bots, reaction_index)
                 else:
-                    print(cc("RED", "Invalid command. Use 1-6, r, a, or q."))
+                    print(cc("RED", "Invalid command. Use 1-6, r, a, z-n, or q."))
 
             except (EOFError, KeyboardInterrupt):
                 break
