@@ -5,7 +5,8 @@ from cc import cc
 # Shared state: network module stores game data that bot.py can read
 game_data = {
     "game_api_id": None,
-    "q1_answers": None,  # list of {answer, correct} from firstGameBlockData
+    "q1_answers": None,
+    "fetched_questions": None,  # Full quiz data from pre-fetch (list of question dicts)
 }
 
 
@@ -45,6 +46,29 @@ def process_ws_frame(payload, bot_id: int):
             handle_game_message(data, bot_id)
     except json.JSONDecodeError:
         pass
+
+
+def _print_question_hint(question_index: int):
+    """If we have pre-fetched quiz data, print the answer for this question."""
+    questions = game_data.get("fetched_questions")
+    if not questions:
+        return
+    if question_index < 0 or question_index >= len(questions):
+        return
+
+    q = questions[question_index]
+    qtype = q.get("type", "quiz")
+
+    if qtype == "content":
+        return
+
+    choices = q.get("choices", [])
+    correct_indices = [i for i, c in enumerate(choices) if c.get("correct")]
+    correct_texts = [c.get("answer", c.get("answerText", "?")) for c in choices if c.get("correct")]
+
+    if correct_indices:
+        answer_str = ", ".join(f"{i + 1}={t}" for i, t in zip(correct_indices, correct_texts))
+        print(cc("GREEN", f"💡 Answer: {answer_str}"))
 
 
 def handle_game_message(data: dict, bot_id: int):
@@ -98,6 +122,7 @@ def handle_game_message(data: dict, bot_id: int):
         qtype = content.get("type", "?")
         num_choices = content.get("numberOfChoices", "?")
         print(cc("YELLOW", f"⏳ Question {idx + 1}/{total} ({qtype}, {num_choices} choices)"))
+        _print_question_hint(idx)
 
     # Answer result (id=8)
     if "correctChoices" in content:
@@ -108,7 +133,7 @@ def handle_game_message(data: dict, bot_id: int):
         is_correct = content.get("isCorrect", False)
         icon = "✅" if is_correct else "❌"
         print(cc("GREEN" if is_correct else "RED",
-                 f"  {icon} Correct: {correct}, Chose: {chose}, "
+                 f"\n{icon} Correct: {correct}, Chose: {chose}, "
                  f"+{points}pts (total: {total})"))
 
     # Game over (id=13)

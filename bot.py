@@ -1,5 +1,6 @@
 import asyncio
 import random
+import re
 import sys
 
 import aiohttp
@@ -9,7 +10,7 @@ from cc import cc
 from network import attach_network_debugging, game_data
 
 # Configuration
-GAME_PIN = "4112292"
+GAME_PIN = "9173894"
 
 HEADLESS = True  # set false to see browser tabs (mostly for debugging)
 BROWSER_TYPE = "webkit"  # "chromium" (recommended), "firefox", "webkit"
@@ -19,66 +20,86 @@ KAHOOT_URL = f"https://kahoot.it/?pin={GAME_PIN}"
 REACTION_KEYS = {"z": 0, "x": 1, "c": 2, "v": 3, "b": 4, "n": 5}
 REACTION_NAMES = ["👍 ThumbsUp", "👏 Clap", "❤️ Heart", "😂 Haha", "🤔 Thinking", "😮 Wow"]
 
+FETCH_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
 
 async def generate_nickname():
     """Generate a random human name for the bot nickname."""
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get("https://api.jerryxf.net/generators/human_name", timeout=aiohttp.ClientTimeout(total=5)) as response:
+            async with session.get("https://api.jerryxf.net/generators/human_name",
+                                   timeout=aiohttp.ClientTimeout(total=5)) as response:
                 response_json = await response.json()
                 name = response_json["data"]
-                truncated_name = name[:14]  # Truncate if exceeds 14 characters
-                return truncated_name
+                return name[:14]  # Truncate if exceeds 14 characters
     except Exception as e:
         print(cc("RED", f"Error generating nickname: {e}"))
         # Fallback to a simple generated name
         return f"Bot{random.randint(1000, 9999)}"
 
 
-async def try_fetch_quiz(game_api_id: str):
-    """Attempt to fetch quiz content using the gameApiId."""
-    urls = [
-        f"https://kahoot.it/rest/kahoots/{game_api_id}",
-        f"https://apis.kahoot.it/kahoots/{game_api_id}",
-        f"https://create.kahoot.it/rest/kahoots/{game_api_id}",
-    ]
+def extract_quiz_uuid(text: str) -> str | None:
+    """Extract a quiz UUID from raw UUID or full Kahoot URL."""
+    text = text.strip()
+    uuid_pattern = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
+    match = uuid_pattern.search(text)
+    return match.group(0) if match else None
 
-    async with aiohttp.ClientSession() as session:
-        for url in urls:
-            try:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        questions = data.get("questions", [])
-                        if questions:
-                            print(cc("GREEN", f"\n🎯 Fetched quiz: {data.get('title', '?')} ({len(questions)} questions)"))
-                            print(cc("CYAN", "=" * 50))
-                            for qi, q in enumerate(questions):
-                                qtext = q.get("question", "?")
-                                print(cc("CYAN", f"  Q{qi + 1}: {qtext}"))
-                                for ci, c in enumerate(q.get("choices", [])):
-                                    marker = "✓" if c.get("correct") else " "
-                                    print(cc("GREEN" if c.get("correct") else "GRAY",
-                                             f"    [{marker}] {ci + 1}: {c.get('answer', '?')}"))
-                            print(cc("CYAN", "=" * 50))
-                            return questions
-                        else:
-                            print(cc("YELLOW", f"Quiz fetched from {url} but no questions found"))
+
+async def try_fetch_quiz(quiz_uuid: str):
+    """Fetch quiz content from the Kahoot REST API and store it for answer hints."""
+    url = f"https://play.kahoot.it/rest/kahoots/{quiz_uuid}"
+
+    async with aiohttp.ClientSession(headers=FETCH_HEADERS) as session:
+        try:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    questions = data.get("questions", [])
+                    if questions:
+                        # Store for live answer hints
+                        game_data["fetched_questions"] = questions
+
+                        title = data.get("title", "?")
+                        print(cc("GREEN", f"\n🎯 Fetched: {title} ({len(questions)} questions)"))
+                        print(cc("CYAN", "=" * 50))
+                        for qi, q in enumerate(questions):
+                            qtype = q.get("type", "quiz")
+                            if qtype == "content":
+                                slide_title = q.get("title", q.get("description", "(slide)"))
+                                print(cc("GRAY", f"  S{qi + 1}: {slide_title}"))
+                                continue
+
+                            qtext = q.get("question", q.get("title", "?"))
+                            print(cc("CYAN", f"  Q{qi + 1}: {qtext}"))
+                            for ci, c in enumerate(q.get("choices", [])):
+                                answer_text = c.get("answer", c.get("answerText", "?"))
+                                marker = "✓" if c.get("correct") else " "
+                                print(cc("GREEN" if c.get("correct") else "GRAY",
+                                         f"    [{marker}] {ci + 1}: {answer_text}"))
+                        print(cc("CYAN", "=" * 50))
+                        return questions
                     else:
-                        print(cc("GRAY", f"  {url} → {response.status}"))
-            except Exception as e:
-                print(cc("GRAY", f"  {url} → {e}"))
+                        print(cc("YELLOW", "Quiz fetched but no questions found"))
+                        print(cc("GRAY", f"  Keys: {list(data.keys())[:10]}"))
+                elif response.status == 404:
+                    print(cc("RED", "  Quiz not found (404). Check the UUID."))
+                elif response.status == 403:
+                    print(cc("RED", "  Access denied (403). Quiz may be private."))
+                else:
+                    print(cc("GRAY", f"  {url} → {response.status}"))
+        except Exception as e:
+            print(cc("RED", f"  Fetch error: {e}"))
 
-    print(cc("YELLOW", "Could not pre-fetch quiz (likely private)"))
     return None
 
 
 async def join_kahoot(context_id: int, browser, game_pin: str):
-    """
-    Join a Kahoot game using an isolated browser context.
-    Each context has its own cookies/storage, bypassing Kahoot's tab detection.
-    """
-    # Create a new isolated browser context
+    """Join a Kahoot game using an isolated browser context."""
     context = await browser.new_context()
     page = await context.new_page()
     attach_network_debugging(page, context_id, verbose=False)
@@ -117,7 +138,6 @@ async def join_kahoot(context_id: int, browser, game_pin: str):
         await page.wait_for_timeout(150)
         print(cc("BLUE", f"[Bot {context_id}] ✓ Joined as '{nickname}'"))
 
-        # Keep the context alive - return it so we can manage it later
         return {"context": context, "page": page, "nickname": nickname, "id": context_id}
 
     except Exception as e:
@@ -144,10 +164,7 @@ async def join_kahoot_with_retry(context_id: int, browser, game_pin: str, retrie
 
 
 async def answer_question(bot_session, answer_index: int):
-    """
-    Click an answer button for a bot.
-    answer_index: 0-5 for answers 1-6
-    """
+    """Click an answer button for a bot."""
     page = bot_session["page"]
     bot_id = bot_session["id"]
 
@@ -265,14 +282,29 @@ async def auto_random_answer(bot_session):
                 await page.wait_for_timeout(60)
 
     except asyncio.CancelledError:
-        # Task was cancelled, exit gracefully
         pass
     except Exception as e:
         print(cc("RED", f"[Bot {bot_id}] Auto-answer stopped: {e}"))
 
 
+async def handle_u_command(user_input: str):
+    """Handle the 'u' command: fetch quiz by UUID (inline arg or prompted)."""
+    arg = user_input[1:].strip()
+
+    if not arg:
+        arg = await asyncio.get_running_loop().run_in_executor(
+            None, input, cc("CYAN", "Paste quiz UUID or URL: ")
+        )
+
+    quiz_uuid = extract_quiz_uuid(arg)
+    if quiz_uuid:
+        print(cc("YELLOW", f"Fetching quiz {quiz_uuid}..."))
+        await try_fetch_quiz(quiz_uuid)
+    else:
+        print(cc("RED", "No valid UUID found in input."))
+
+
 async def main():
-    # Check for command-line arguments for browser type
     browser_type = BROWSER_TYPE
     if len(sys.argv) > 1:
         arg = sys.argv[1].lower()
@@ -328,16 +360,6 @@ async def main():
             await browser.close()
             return
 
-        # Wait a moment for WebSocket messages to arrive with gameApiId
-        await asyncio.sleep(2)
-
-        # Attempt to pre-fetch quiz
-        if game_data["game_api_id"]:
-            print(cc("YELLOW", f"\nAttempting to fetch quiz ({game_data['game_api_id']})..."))
-            await try_fetch_quiz(game_data["game_api_id"])
-        else:
-            print(cc("GRAY", "No gameApiId received yet"))
-
         # Interactive answer control
         print(cc("CYAN", "\n" + "=" * 50))
         print(cc("CYAN", "       Answer Control"))
@@ -347,6 +369,7 @@ async def main():
         print(cc("BLUE", "  r") + cc("GRAY", " > Send random answer to all bots"))
         print(cc("BLUE", "  a") + cc("GRAY", " > Toggle auto-random answers"))
         print(cc("BLUE", "  z x c v b n") + cc("GRAY", " > React: 👍 👏 ❤️ 😂 🤔 😮"))
+        print(cc("BLUE", "  u [uuid|url]") + cc("GRAY", " > Fetch quiz answers"))
         print(cc("BLUE", "  q") + cc("GRAY", " > Quit and close all bots"))
         print(cc("CYAN", "=" * 50))
 
@@ -359,16 +382,17 @@ async def main():
                 user_input = await asyncio.get_running_loop().run_in_executor(
                     None, input, cc("YELLOW", "\nEnter command: ")
                 )
-                user_input = user_input.strip().lower()
+                user_input = user_input.strip()
+                cmd = user_input.lower()
 
-                if user_input == "q":
+                if cmd == "q":
                     print(cc("RED", "Quitting..."))
                     break
-                elif user_input == "r":
+                elif cmd == "r":
                     print(cc("GREEN", "Sending random answers to all bots..."))
                     tasks = [send_random_answer(bot) for bot in active_bots if bot is not None]
                     await asyncio.gather(*tasks)
-                elif user_input == "a":
+                elif cmd == "a":
                     if not auto_mode:
                         print(cc("GREEN", "Enabling auto-random answers for all bots..."))
                         auto_tasks = [asyncio.create_task(auto_random_answer(bot)) for bot in active_bots]
@@ -379,16 +403,18 @@ async def main():
                             task.cancel()
                         auto_tasks = []
                         auto_mode = False
-                elif user_input in ["1", "2", "3", "4", "5", "6"]:
-                    answer_index = int(user_input) - 1
+                elif cmd in ["1", "2", "3", "4", "5", "6"]:
+                    answer_index = int(cmd) - 1
                     print(cc("GREEN", f"Sending answer #{answer_index + 1} to all bots..."))
                     await answer_all_bots(active_bots, answer_index)
-                elif user_input in REACTION_KEYS:
-                    reaction_index = REACTION_KEYS[user_input]
-                    print(cc("BLUE", f"Sending reaction {reaction_index} to all bots..."))
+                elif cmd in REACTION_KEYS:
+                    reaction_index = REACTION_KEYS[cmd]
+                    print(cc("BLUE", f"Sending reaction to all bots..."))
                     await react_all_bots(active_bots, reaction_index)
+                elif cmd == "u" or cmd.startswith("u "):
+                    await handle_u_command(user_input)
                 else:
-                    print(cc("RED", "Invalid command. Use 1-6, r, a, z-n, or q."))
+                    print(cc("RED", "Invalid command. Use 1-6, r, a, z-n, u, or q."))
 
             except (EOFError, KeyboardInterrupt):
                 break
