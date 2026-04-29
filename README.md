@@ -46,9 +46,14 @@ python bot.py
 
 3. Use the answer controls during the game:
 
-| Key   | Action                                     |
-|-------|--------------------------------------------|
-| `1-6` | Select answer, left-right top-bottom order |
-| `r`   | Send random answer to all bots             |
-| `a`   | Toggle auto-random answers                 |
-| `q`   | Quit and close all bots                    |
+| Key           | Action                         |
+|---------------|--------------------------------|
+| `1-6`         | Select answer                  |
+| `r`           | Send random answer to all bots |
+| `a`           | Toggle auto-random answers     |
+| `z x c v b n` | React: 👍 👏 ❤️ 😂 🤔 😮       |
+| `u [uuid]`    | Fetch quiz answers             |
+| `q`           | Quit and close all bots        |
+
+Note: The uuid can be found in the host's URL bar (e.g. https://play.kahoot.it/v2/lobby?quizId=669a564f-617e-4105-ae2c-4457f76eca0e). In this case, the uuid is
+`669a564f-617e-4105-ae2c-4457f76eca0e`. **This only works if the Kahoot is public.**
