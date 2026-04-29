@@ -6,12 +6,13 @@ import aiohttp
 from playwright.async_api import async_playwright
 
 from cc import cc
+from network import attach_network_debugging
 
 # Configuration
-GAME_PIN = "5930539"  # <<< Replace with game pin
+GAME_PIN = "4182863"
 
 HEADLESS = True  # set false to see browser tabs (mostly for debugging)
-BROWSER_TYPE = "chromium"  # "chromium" (recommended), "firefox", "webkit"
+BROWSER_TYPE = "webkit"  # "chromium" (recommended), "firefox", "webkit"
 KAHOOT_URL = f"https://kahoot.it/?pin={GAME_PIN}"
 
 
@@ -38,6 +39,7 @@ async def join_kahoot(context_id: int, browser, game_pin: str):
     # Create a new isolated browser context
     context = await browser.new_context()
     page = await context.new_page()
+    attach_network_debugging(page, context_id, verbose=False)
 
     nickname = await generate_nickname()
     print(cc("CYAN", f"[Bot {context_id}] Starting with nickname: {nickname}"))
