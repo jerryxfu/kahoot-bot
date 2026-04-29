@@ -8,7 +8,7 @@ from playwright.async_api import async_playwright
 from cc import cc
 
 # Configuration
-GAME_PIN = "3232713"  # <<< Replace with game pin
+GAME_PIN = "5930539"  # <<< Replace with game pin
 
 HEADLESS = True  # set false to see browser tabs (mostly for debugging)
 BROWSER_TYPE = "chromium"  # "chromium" (recommended), "firefox", "webkit"
@@ -58,7 +58,7 @@ async def join_kahoot(context_id: int, browser, game_pin: str):
         await nickname_input.wait_for(state="visible", timeout=15000)
         await nickname_input.fill(nickname)
 
-        await page.wait_for_timeout(50)
+        await page.wait_for_timeout(150)
 
         # Click the join button
         print(cc("GREEN", f"[Bot {context_id}] Joining game..."))
@@ -70,7 +70,7 @@ async def join_kahoot(context_id: int, browser, game_pin: str):
         ).first
         await join_button.click()
 
-        await page.wait_for_timeout(50)
+        await page.wait_for_timeout(150)
         print(cc("BLUE", f"[Bot {context_id}] ✓ Joined as '{nickname}'"))
 
         # Keep the context alive - return it so we can manage it later
@@ -80,6 +80,23 @@ async def join_kahoot(context_id: int, browser, game_pin: str):
         print(cc("RED", f"[Bot {context_id}] Error: {e}"))
         await context.close()
         return None
+
+
+async def join_kahoot_with_retry(context_id: int, browser, game_pin: str, retries: int = 1):
+    """Attempt to join and retry once if the first attempt fails."""
+    total_attempts = retries + 1
+
+    for attempt in range(1, total_attempts + 1):
+        session = await join_kahoot(context_id, browser, game_pin)
+        if session is not None:
+            return session
+
+        if attempt <= retries:
+            print(cc("YELLOW", f"[Bot {context_id}] Join failed. Retrying ({attempt}/{retries})..."))
+            await asyncio.sleep(0.3)
+
+    print(cc("RED", f"[Bot {context_id}] Failed to join after {total_attempts} attempts."))
+    return None
 
 
 async def answer_question(bot_session, answer_index: int):
@@ -111,10 +128,30 @@ async def answer_all_bots(bot_sessions, answer_index: int):
     await asyncio.gather(*tasks)
 
 
+async def send_random_answer(bot_session):
+    """Send a random answer by first checking available answer buttons."""
+    page = bot_session["page"]
+    bot_id = bot_session["id"]
+
+    try:
+        # Check how many answer buttons are actually available
+        answer_buttons = page.locator('[data-functional-selector^="answer-"]')
+        num_answers = await answer_buttons.count()
+
+        if num_answers > 0:
+            random_index = random.randint(0, num_answers - 1)
+            await answer_question(bot_session, random_index)
+        else:
+            print(cc("YELLOW", f"[Bot {bot_id}] No answer buttons found"))
+    except Exception as e:
+        print(cc("RED", f"[Bot {bot_id}] Error sending random answer: {e}"))
+
+
 async def auto_random_answer(bot_session):
     """Continuously monitor for questions and answer randomly (optional feature)."""
     page = bot_session["page"]
     bot_id = bot_session["id"]
+    last_question_answered = False
 
     try:
         while True:
@@ -126,20 +163,27 @@ async def auto_random_answer(bot_session):
 
             # Check if any answer buttons are visible and valid
             if num_answers > 0:
-                # Wait a moment for buttons to be fully interactive
-                await page.wait_for_timeout(100)
+                # Only answer if we haven't already answered this question
+                if not last_question_answered:
+                    # Wait a moment for buttons to be fully interactive
+                    await page.wait_for_timeout(60)
 
-                # Re-check count to ensure stability
-                num_answers = await answer_buttons.count()
-                if num_answers > 0:
-                    random_index = random.randint(0, num_answers - 1)
-                    await answer_question(bot_session, random_index)
+                    # Re-check count to ensure stability
+                    num_answers = await answer_buttons.count()
+                    if num_answers > 0:
+                        random_index = random.randint(0, num_answers - 1)
+                        await answer_question(bot_session, random_index)
+                        last_question_answered = True
 
                     # Wait a bit before checking for next question
                     await page.wait_for_timeout(2500)
+                else:
+                    # Already answered, wait for buttons to disappear before next question
+                    await page.wait_for_timeout(500)
             else:
-                # No questions yet, wait a bit
-                await page.wait_for_timeout(100)
+                # No questions yet, reset flag for next question
+                last_question_answered = False
+                await page.wait_for_timeout(60)
 
     except asyncio.CancelledError:
         # Task was cancelled, exit gracefully
@@ -193,7 +237,7 @@ async def main():
 
         # Spawn all bots concurrently
         print(cc("GREEN", f"Spawning {num_bots} bots..."))
-        tasks = [join_kahoot(i + 1, browser, GAME_PIN) for i in range(num_bots)]
+        tasks = [join_kahoot_with_retry(i + 1, browser, GAME_PIN, retries=1) for i in range(num_bots)]
         bot_sessions = await asyncio.gather(*tasks)
 
         # Filter out failed sessions
@@ -222,7 +266,7 @@ async def main():
         # Input loop
         while True:
             try:
-                user_input = await asyncio.get_event_loop().run_in_executor(
+                user_input = await asyncio.get_running_loop().run_in_executor(
                     None, input, cc("YELLOW", "\nEnter command: ")
                 )
                 user_input = user_input.strip().lower()
@@ -231,9 +275,8 @@ async def main():
                     print(cc("RED", "Quitting..."))
                     break
                 elif user_input == "r":
-                    import random
                     print(cc("GREEN", f"Sending random answers to all bots..."))
-                    tasks = [answer_question(bot, random.randint(0, 5)) for bot in active_bots if bot is not None]
+                    tasks = [send_random_answer(bot) for bot in active_bots if bot is not None]
                     await asyncio.gather(*tasks)
                 elif user_input == "a":
                     if not auto_mode:

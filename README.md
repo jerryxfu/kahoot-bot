@@ -6,14 +6,28 @@ A Kahoot bot that can join games and answer questions at your command.
 
 If you wish to use a virtual environment, you can use the included scripts (optional):
 
-1. `create_venv.bat` (Windows) which simply runs `python -m venv venv`.
-2. `activate_venv.bat` (Windows) which runs `venv\Scripts\activate.bat`.
+**Windows (Command Prompt):**
+
+1. `create_venv.bat` - Creates a virtual environment
+2. `activate_venv.bat` - Activates the virtual environment
+
+**Windows & macOS/Linux (PowerShell):**
+
+1. `create_venv.ps1` - Creates a virtual environment
+2. `activate_venv.ps1` - Activates the virtual environment (cross-platform compatible)
+
+**Unix-like systems (macOS/Linux):**
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
 
 Install the dependencies:
 
 ```bash
 pip install -r requirements.txt
-playwright install chromium
+playwright install
 ```
 
 ### Usage
