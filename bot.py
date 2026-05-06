@@ -13,7 +13,7 @@ from network import attach_network_debugging, game_data
 GAME_PIN = "9173894"
 
 HEADLESS = True  # set false to see browser tabs (mostly for debugging)
-BROWSER_TYPE = "webkit"  # "chromium" (recommended), "firefox", "webkit"
+BROWSER_TYPE = "chromium"  # "chromium" (recommended), "firefox", "webkit"
 KAHOOT_URL = f"https://kahoot.it/?pin={GAME_PIN}"
 
 # Reaction keys: z x c v b n mapped to the 6 reaction types
@@ -21,7 +21,6 @@ REACTION_KEYS = {"z": 0, "x": 1, "c": 2, "v": 3, "b": 4, "n": 5}
 REACTION_NAMES = ["👍 ThumbsUp", "👏 Clap", "❤️ Heart", "😂 Haha", "🤔 Thinking", "😮 Wow"]
 
 FETCH_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "en-US,en;q=0.9",
 }
